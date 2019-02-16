@@ -389,7 +389,7 @@ int main(int argc, char** argv) {
 				zero_arg(optarg);
 				break;
 			case 'o':
-				out_interface = optarg;
+				out_interface = strdup(optarg); // maybe we will need it sometime.
 				break;
 			case 'P':
 				auth_pass = strdup(optarg);
@@ -415,20 +415,22 @@ int main(int argc, char** argv) {
 		dprintf(2, "error: auth-once option must be used together with user/pass\n");
 		return 1;
 	}
-	signal(SIGPIPE, SIG_IGN);
 	struct server s;
-	sblist *threads = sblist_new(sizeof (struct thread*), 8);
-	if(server_setup(&s, listenip, port)) {
-		perror("server_setup");
-		return 1;
-	}
 	memset(&s.outaddr,0,sizeof(s.outaddr));
 	s.outaddr.v4.sin_family = AF_UNSPEC;
 	if(out_interface != NULL) {
 		if (get_interface_addr(out_interface,s.bindaddr.v4.sin_family,(struct sockaddr *)&s.outaddr)) {
 			// TODO: check for -b!
 			bind_mode=1;
-		}
+		} else {
+            dprintf(2,"warning: could not find '%s' interface\n",out_interface);
+        }
+	}
+	signal(SIGPIPE, SIG_IGN);
+	sblist *threads = sblist_new(sizeof (struct thread*), 8);
+	if(server_setup(&s, listenip, port)) {
+		perror("server_setup");
+		return 1;
 	}
 	server = &s;
 	size_t stacksz = MAX(8192, PTHREAD_STACK_MIN);  /* 4KB for us, 4KB for libc */
