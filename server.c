@@ -15,6 +15,8 @@ int resolve(const char *host, unsigned short port, struct addrinfo** addr) {
 }
 
 int server_bindtoip(const struct server *server, int fd) {
+	if(server->outaddr.v4.sin_family != AF_UNSPEC)
+		return bind(fd, (struct sockaddr *)&server->outaddr,server->bindaddrsz);
 	if(server->bindaddr.v4.sin_family != AF_UNSPEC)
 		return bind(fd, (struct sockaddr*) &server->bindaddr, server->bindaddrsz);
 	return 0;

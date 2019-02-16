@@ -5,12 +5,12 @@ prefix = /usr/local
 bindir = $(prefix)/bin
 
 PROG = microsocks
-SRCS =  sockssrv.c server.c sblist.c sblist_delete.c
+SRCS =  sockssrv.c server.c sblist.c sblist_delete.c interface_ioctl.c
 OBJS = $(SRCS:.c=.o)
 
 LIBS = -lpthread
 
-CFLAGS += -Wall -std=c99
+CFLAGS += -D_DEFAULT_SOURCE -Wall -std=c99
 
 -include config.mak
 

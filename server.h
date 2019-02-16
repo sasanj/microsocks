@@ -24,6 +24,7 @@ struct server {
 	union sockaddr_union bindaddr;
 	int fd;
 	socklen_t bindaddrsz;
+	union sockaddr_union outaddr;
 };
 
 int resolve(const char *host, unsigned short port, struct addrinfo** addr);

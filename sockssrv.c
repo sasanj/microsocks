@@ -35,7 +35,7 @@
 #include <limits.h>
 #include "server.h"
 #include "sblist.h"
-
+#include "interface.h"
 #ifndef MAX
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 #endif
@@ -351,7 +351,7 @@ static int usage(void) {
 	dprintf(2,
 		"MicroSocks SOCKS5 Server\n"
 		"------------------------\n"
-		"usage: microsocks -1 -b -i listenip -p port -u user -P password\n"
+		"usage: microsocks -1 -b -i listenip -p port -u user -P password -o device\n"
 		"all arguments are optional.\n"
 		"by default listenip is 0.0.0.0 and port 1080.\n\n"
 		"option -b forces outgoing connections to be bound to the ip specified with -i\n"
@@ -374,8 +374,9 @@ static void zero_arg(char *s) {
 int main(int argc, char** argv) {
 	int c;
 	const char *listenip = "0.0.0.0";
+	char *out_interface = NULL;
 	unsigned port = 1080;
-	while((c = getopt(argc, argv, ":1bi:p:u:P:")) != -1) {
+	while((c = getopt(argc, argv, ":1bi:p:u:P:o:")) != -1) {
 		switch(c) {
 			case '1':
 				auth_ips = sblist_new(sizeof(union sockaddr_union), 8);
@@ -386,6 +387,9 @@ int main(int argc, char** argv) {
 			case 'u':
 				auth_user = strdup(optarg);
 				zero_arg(optarg);
+				break;
+			case 'o':
+				out_interface = optarg;
 				break;
 			case 'P':
 				auth_pass = strdup(optarg);
@@ -417,6 +421,14 @@ int main(int argc, char** argv) {
 	if(server_setup(&s, listenip, port)) {
 		perror("server_setup");
 		return 1;
+	}
+	memset(&s.outaddr,0,sizeof(s.outaddr));
+	s.outaddr.v4.sin_family = AF_UNSPEC;
+	if(out_interface != NULL) {
+		if (get_interface_addr(out_interface,s.bindaddr.v4.sin_family,(struct sockaddr *)&s.outaddr)) {
+			// TODO: check for -b!
+			bind_mode=1;
+		}
 	}
 	server = &s;
 	size_t stacksz = MAX(8192, PTHREAD_STACK_MIN);  /* 4KB for us, 4KB for libc */
