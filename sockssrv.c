@@ -109,8 +109,9 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 			/* fall through */
 		case 1: /* ipv4 */
 			if(n < minlen) return -EC_GENERAL_FAILURE;
-			if(namebuf != inet_ntop(af, buf+4, namebuf, sizeof namebuf))
+			if(namebuf != inet_ntop(af, buf+4, namebuf, sizeof namebuf)) {
 				return -EC_GENERAL_FAILURE; /* malformed or too long addr */
+            }
 			break;
 		case 3: /* dns name */
 			l = buf[4];
@@ -124,9 +125,14 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 	}
 	unsigned short port;
 	port = (buf[minlen-2] << 8) | buf[minlen-1];
-	if(resolve(namebuf, port, &remote)) return -9;
+	if(resolve(namebuf, port, &remote)) {
+        dolog("error client[%d] could not resolve '%s'.\n",client->fd,namebuf);
+        return -9;
+    }
+    char *stat = "socket";
 	int fd = socket(remote->ai_addr->sa_family, SOCK_STREAM, 0);
 	if(fd == -1) {
+        dolog("error client[%d] could not %s '%s'.\n",client->fd,stat,namebuf);
 		eval_errno:
 		freeaddrinfo(remote);
 		switch(errno) {
@@ -147,11 +153,14 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 			return -EC_GENERAL_FAILURE;
 		}
 	}
-	if(bind_mode && server_bindtoip(server, fd) == -1)
-		goto eval_errno;
-	if(connect(fd, remote->ai_addr, remote->ai_addrlen) == -1)
-		goto eval_errno;
-
+	if(bind_mode && server_bindtoip(server, fd) == -1) {
+		stat = "bind to ip when connecting to";
+        goto eval_errno;
+    }
+	if(connect(fd, remote->ai_addr, remote->ai_addrlen) == -1) {
+		stat = "connect";
+        goto eval_errno;
+    }
 	freeaddrinfo(remote);
 	if(CONFIG_LOG) {
 		char clientname[256];
