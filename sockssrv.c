@@ -87,18 +87,9 @@ struct thread {
 	enum socksstate state;
 	volatile int  done;
 };
-
-#ifndef CONFIG_LOG
 #define CONFIG_LOG 1
-#endif
-#if CONFIG_LOG
-/* we log to stderr because it's not using line buffering, i.e. malloc which would need
-   locking when called from different threads. for the same reason we use dprintf,
-   which writes directly to an fd. */
-#define dolog(...) dprintf(2, __VA_ARGS__)
-#else
-static void dolog(const char* fmt, ...) { }
-#endif
+void dolog(const char* fmt, ...);
+void daemonize(char *log_file,char *pid_file);
 
 static int connect_socks_target(unsigned char *buf, size_t n, struct client *client) {
 	if(n < 5) return -EC_GENERAL_FAILURE;
@@ -426,6 +417,7 @@ int main(int argc, char** argv) {
             dprintf(2,"warning: could not find '%s' interface\n",out_interface);
         }
 	}
+    daemonize("/tmp/logfile.txt","/tmp/microsocks.pid");
 	signal(SIGPIPE, SIG_IGN);
 	sblist *threads = sblist_new(sizeof (struct thread*), 8);
 	if(server_setup(&s, listenip, port)) {
