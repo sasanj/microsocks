@@ -110,6 +110,7 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 		case 1: /* ipv4 */
 			if(n < minlen) return -EC_GENERAL_FAILURE;
 			if(namebuf != inet_ntop(af, buf+4, namebuf, sizeof namebuf)) {
+                dolog("client[%d] error, too long or malformed address.\n",client->fd);
 				return -EC_GENERAL_FAILURE; /* malformed or too long addr */
             }
 			break;
@@ -126,13 +127,13 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 	unsigned short port;
 	port = (buf[minlen-2] << 8) | buf[minlen-1];
 	if(resolve(namebuf, port, &remote)) {
-        dolog("error client[%d] could not resolve '%s'.\n",client->fd,namebuf);
+        dolog("client[%d] error, could not resolve '%s'.\n",client->fd,namebuf);
         return -9;
     }
-    char *stat = "socket";
+    char *stat = "create socket for";
 	int fd = socket(remote->ai_addr->sa_family, SOCK_STREAM, 0);
 	if(fd == -1) {
-        dolog("error client[%d] could not %s '%s'.\n",client->fd,stat,namebuf);
+        dolog("client[%d] error(%d),could not %s '%s'.\n",client->fd,errno,stat,namebuf);
 		eval_errno:
 		freeaddrinfo(remote);
 		switch(errno) {
