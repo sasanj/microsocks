@@ -1,19 +1,23 @@
 #include <errno.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdio_ext.h> /* FSETLOCKING_BYCALLER */
+#include <stdlib.h>    /* free() */
+#include <string.h>    /* strdup() */
 #include <sys/timeb.h>
 #include <time.h>
 
+pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
+char *log_file = NULL;
 FILE *log_stream = 0;
-
+/**
+ * prints a log with time at first.
+ * IT IS NOT THREAD SAFE.
+ * */
 int my_vfprintf(FILE *file, const char *fmt, va_list argp) {
   static char my_buffer[2048];
-  int err = errno; /* we need to save `errno` before doing any io. thankfully it
-                      is thread local.*/
-  flockfile(
-      file); /* Using file locking system for accessing `my_buffer` also. */
   struct timeb ti;
   ftime(&ti); /* it is going to be obsolete */
   struct tm *local = localtime(&ti.time);
@@ -30,8 +34,6 @@ int my_vfprintf(FILE *file, const char *fmt, va_list argp) {
       putc_unlocked(*buffer++, file);
     fflush(file);
   }
-  funlockfile(file);
-  errno = err;
   return i + j;
 }
 int my_fprintf(FILE *file, const char *fmt, ...) {
@@ -46,22 +48,59 @@ extern void dolog(const char *fmt, ...) {
   if (log_stream != NULL) {
     va_list argp;
     va_start(argp, fmt);
+    int err = errno; /* we need to save `errno` before doing any io. thankfully
+                      it is thread local.*/
+    pthread_mutex_lock(&mutex1);
     my_vfprintf(log_stream, fmt, argp);
+    pthread_mutex_unlock(&mutex1);
+    errno = err;
     va_end(argp);
   }
 }
-extern bool prepare_log(const char *log_filename) {
-  if (log_filename != NULL) {
-    log_stream = fopen(log_filename, "a");
-    if (log_stream == NULL) {
-      return false;
-    }
-
-    __fsetlocking(log_stream, FSETLOCKING_BYCALLER);
-  }
-  return true;
-}
 extern void close_log() {
+  if (log_stream == 0)
+    return;
+  pthread_mutex_lock(&mutex1);
   fclose(log_stream);
   log_stream = 0;
+  pthread_mutex_unlock(&mutex1);
+}
+extern bool set_log_file_name(const char *log_filename) {
+  if (log_stream != 0) {
+    /* there is a open stream on current file name. */
+    return false;
+  }
+  pthread_mutex_lock(&mutex1);
+  if (log_file != NULL) {
+    free(log_file);
+    log_file = 0;
+  }
+  if (log_filename != NULL)
+    log_file = strdup(log_filename);
+  pthread_mutex_unlock(&mutex1);
+  return true;
+}
+extern bool open_log() {
+  if (log_stream != 0) {
+    /* there is a stream open. */
+    return false;
+  }
+  if (log_file == NULL) {
+    /* no log file name! */
+    return false;
+  }
+  pthread_mutex_lock(&mutex1);
+  log_stream = fopen(log_file, "a");
+  if (log_stream == NULL) {
+    pthread_mutex_unlock(&mutex1);
+    return false;
+  }
+
+  __fsetlocking(log_stream, FSETLOCKING_BYCALLER);
+  pthread_mutex_unlock(&mutex1);
+  return true;
+}
+extern bool prepare_log(const char *log_filename) {
+  set_log_file_name(log_filename);
+  return open_log();
 }

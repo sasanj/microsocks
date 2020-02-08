@@ -9,7 +9,7 @@
    - prefer usage of standard libc functions over homegrown ones
    - no artificial limits
    - do not aim for minimal binary size, but for minimal source code size,
-     and maximal readability, reusability, and extensibility.
+   and maximal readability, reusability, and extensibility.
 
    as a result of that, ipv4, dns, and ipv6 is supported out of the box
    and can use the same code, while rocksocks5 has several compile time
@@ -88,8 +88,29 @@ struct thread {
 	volatile int  done;
 };
 #define CONFIG_LOG 1
+/* from logger.c */
 void dolog(const char* fmt, ...);
-void daemonize(char *log_file,char *pid_file);
+void close_log();
+void prepare_log(const char *log_filename);
+/* from daemonize.c */
+void daemonize(const char *pid_file);
+void daemon_cleanup();
+
+void signal_handler(sig) int sig;
+{
+	switch (sig) {
+		case SIGHUP:
+			/* TODO: add log rotation. */
+			dolog("got SIGHUB!\n");
+			break;
+		case SIGTERM:
+			dolog("going down.\n");
+			daemon_cleanup();
+			close_log();
+			exit(EXIT_SUCCESS);
+			break;
+	}
+}
 
 static int connect_socks_target(unsigned char *buf, size_t n, struct client *client) {
 	if(n < 5) return -EC_GENERAL_FAILURE;
@@ -110,9 +131,9 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 		case 1: /* ipv4 */
 			if(n < minlen) return -EC_GENERAL_FAILURE;
 			if(namebuf != inet_ntop(af, buf+4, namebuf, sizeof namebuf)) {
-                dolog("client[%d] error, too long or malformed address.\n",client->fd);
+				dolog("client[%d] error, too long or malformed address.\n",client->fd);
 				return -EC_GENERAL_FAILURE; /* malformed or too long addr */
-            }
+			}
 			break;
 		case 3: /* dns name */
 			l = buf[4];
@@ -127,14 +148,14 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 	unsigned short port;
 	port = (buf[minlen-2] << 8) | buf[minlen-1];
 	if(resolve(namebuf, port, &remote)) {
-        dolog("client[%d] error, could not resolve '%s'.\n",client->fd,namebuf);
-        return -9;
-    }
-    char *stat = "create socket for";
+		dolog("client[%d] error, could not resolve '%s'.\n",client->fd,namebuf);
+		return -9;
+	}
+	char *stat = "create socket for";
 	int fd = socket(remote->ai_addr->sa_family, SOCK_STREAM, 0);
 	if(fd == -1) {
-        dolog("client[%d] error(%d),could not %s '%s'.\n",client->fd,errno,stat,namebuf);
-		eval_errno:
+		dolog("client[%d] error(%d),could not %s '%s'.\n",client->fd,errno,stat,namebuf);
+eval_errno:
 		freeaddrinfo(remote);
 		switch(errno) {
 			case EPROTOTYPE:
@@ -150,18 +171,18 @@ static int connect_socks_target(unsigned char *buf, size_t n, struct client *cli
 				return -EC_HOST_UNREACHABLE;
 			case EBADF:
 			default:
-			perror("socket/connect");
-			return -EC_GENERAL_FAILURE;
+				perror("socket/connect");
+				return -EC_GENERAL_FAILURE;
 		}
 	}
 	if(bind_mode && server_bindtoip(server, fd) == -1) {
 		stat = "bind to ip when connecting to";
-        goto eval_errno;
-    }
+		goto eval_errno;
+	}
 	if(connect(fd, remote->ai_addr, remote->ai_addrlen) == -1) {
 		stat = "connect";
-        goto eval_errno;
-    }
+		goto eval_errno;
+	}
 	freeaddrinfo(remote);
 	if(CONFIG_LOG) {
 		char clientname[256];
@@ -205,7 +226,8 @@ static enum authmethod check_auth_method(unsigned char *buf, size_t n, struct cl
 				if(authed) return AM_NO_AUTH;
 			}
 		} else if(buf[idx] == AM_USERNAME) {
-			if(auth_user) return AM_USERNAME;
+			if(auth_user)
+				return AM_USERNAME;
 		}
 		idx++;
 		n_methods--;
@@ -321,7 +343,6 @@ static void* clientthread(void *data) {
 				send_error(t->client.fd, EC_SUCCESS);
 				copyloop(t->client.fd, remotefd);
 				goto breakloop;
-
 		}
 	}
 breakloop:
@@ -350,19 +371,19 @@ static void collect(sblist *threads) {
 
 static int usage(void) {
 	dprintf(2,
-		"MicroSocks SOCKS5 Server\n"
-		"------------------------\n"
-		"usage: microsocks -1 -b -i listenip -p port -u user -P password -o device\n"
-		"all arguments are optional.\n"
-		"by default listenip is 0.0.0.0 and port 1080.\n\n"
-		"option -b forces outgoing connections to be bound to the ip specified with -i\n"
-		"option -1 activates auth_once mode: once a specific ip address\n"
-		"authed successfully with user/pass, it is added to a whitelist\n"
-		"and may use the proxy without auth.\n"
-		"this is handy for programs like firefox that don't support\n"
-		"user/pass auth. for it to work you'd basically make one connection\n"
-		"with another program that supports it, and then you can use firefox too.\n"
-	);
+			"MicroSocks SOCKS5 Server\n"
+			"------------------------\n"
+			"usage: microsocks -1 -b -i listenip -p port -u user -P password -o device\n"
+			"all arguments are optional.\n"
+			"by default listenip is 0.0.0.0 and port 1080.\n\n"
+			"option -b forces outgoing connections to be bound to the ip specified with -i\n"
+			"option -1 activates auth_once mode: once a specific ip address\n"
+			"authed successfully with user/pass, it is added to a whitelist\n"
+			"and may use the proxy without auth.\n"
+			"this is handy for programs like firefox that don't support\n"
+			"user/pass auth. for it to work you'd basically make one connection\n"
+			"with another program that supports it, and then you can use firefox too.\n"
+		   );
 	return 1;
 }
 
@@ -424,14 +445,20 @@ int main(int argc, char** argv) {
 			// TODO: check for -b!
 			bind_mode=1;
 		} else {
-            dprintf(2,"warning: could not find '%s' interface\n",out_interface);
-        }
+			dprintf(2,"warning: could not find '%s' interface\n",out_interface);
+		}
 	}
-    daemonize("/tmp/logfile.txt","/tmp/microsocks.pid");
+	/* Catch, ignore and handle signals */
+	signal(SIGCHLD, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
+	signal(SIGHUP, signal_handler);
+	signal(SIGTERM, signal_handler);
+	prepare_log("/tmp/microsocks.log");
+	dolog("microsocks starting up.\n");
+	daemonize("/tmp/microsocks.pid");
 	sblist *threads = sblist_new(sizeof (struct thread*), 8);
 	if(server_setup(&s, listenip, port)) {
-		perror("server_setup");
+		dolog("error [%d:%s] during server setup on %s:%d. exiting.\n",errno,strerror(errno),listenip,port);
 		return 1;
 	}
 	server = &s;
@@ -448,7 +475,7 @@ int main(int argc, char** argv) {
 		if(!sblist_add(threads, &curr)) {
 			close(curr->client.fd);
 			free(curr);
-			oom:
+oom:
 			dolog("rejecting connection due to OOM\n");
 			usleep(16); /* prevent 100% CPU usage in OOM situation */
 			continue;
